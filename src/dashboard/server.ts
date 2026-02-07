@@ -351,6 +351,65 @@ function getDashboardHTML(): string {
     .arb-card .risk.medium { background: rgba(255,170,0,0.2); color: #ffaa00; }
     .arb-card .risk.high { background: rgba(255,68,68,0.2); color: #ff4444; }
     
+    .execute-btn {
+      width: 100%;
+      padding: 12px;
+      margin-top: 15px;
+      background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .execute-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(123, 44, 191, 0.4);
+    }
+    .execute-btn:disabled {
+      background: #444;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    
+    .wallet-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.8);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .wallet-modal.show { display: flex; }
+    .wallet-modal-content {
+      background: #1a1a2e;
+      border: 1px solid #333;
+      border-radius: 16px;
+      padding: 30px;
+      max-width: 400px;
+      text-align: center;
+    }
+    .wallet-option {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      padding: 15px;
+      margin: 10px 0;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid #333;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .wallet-option:hover { border-color: #7b2cbf; }
+    
     #loading {
       text-align: center;
       padding: 40px;
@@ -385,6 +444,27 @@ function getDashboardHTML(): string {
     <h1>⚡ SolArb</h1>
     <p>Funding Rate Arbitrage Agent for Solana</p>
   </header>
+  
+  <!-- Mock Data Banner -->
+  <div id="mock-banner" style="
+    background: linear-gradient(90deg, #ff6b35, #f7931a);
+    padding: 15px 20px;
+    text-align: center;
+    font-weight: bold;
+  ">
+    ⚠️ DEMO MODE - Mock Data | 
+    <span style="font-weight:normal">Connect wallet for live trading →</span>
+    <button id="connect-wallet" style="
+      background: #fff;
+      color: #000;
+      border: none;
+      padding: 8px 20px;
+      border-radius: 20px;
+      margin-left: 15px;
+      cursor: pointer;
+      font-weight: bold;
+    ">🔗 Connect Wallet</button>
+  </div>
   
   <div class="container">
     <div class="stats-grid" id="stats">
@@ -516,7 +596,7 @@ function getDashboardHTML(): string {
             const container = document.getElementById('arb-cards');
             container.style.display = 'grid';
             
-            container.innerHTML = data.opportunities.slice(0, 6).map(opp => \`
+            container.innerHTML = data.opportunities.slice(0, 6).map((opp, i) => \`
               <div class="arb-card \${opp.riskLevel}">
                 <h3>
                   <span>\${opp.asset}</span>
@@ -534,6 +614,9 @@ function getDashboardHTML(): string {
                   <span>Spread: \${opp.spreadApy.toFixed(0)}%</span>
                   <span class="risk \${opp.riskLevel}">\${opp.riskLevel.toUpperCase()}</span>
                 </div>
+                <button class="execute-btn" onclick="executeArb('\${opp.asset}', '\${opp.longProtocol}', '\${opp.shortProtocol}')" \${!window.walletConnected ? 'disabled' : ''}>
+                  \${window.walletConnected ? '⚡ Execute Trade' : '🔒 Connect Wallet First'}
+                </button>
               </div>
             \`).join('');
           }
@@ -551,7 +634,105 @@ function getDashboardHTML(): string {
     
     loadArbOpportunities();
     setInterval(loadArbOpportunities, 30000);
+    
+    // Wallet connection
+    window.walletConnected = false;
+    
+    document.getElementById('connect-wallet').addEventListener('click', () => {
+      document.getElementById('wallet-modal').classList.add('show');
+    });
+    
+    function closeModal() {
+      document.getElementById('wallet-modal').classList.remove('show');
+    }
+    
+    async function connectWallet(type) {
+      try {
+        if (type === 'phantom' && window.solana) {
+          await window.solana.connect();
+          window.walletConnected = true;
+          window.walletAddress = window.solana.publicKey.toString();
+        } else if (type === 'solflare' && window.solflare) {
+          await window.solflare.connect();
+          window.walletConnected = true;
+          window.walletAddress = window.solflare.publicKey.toString();
+        } else {
+          alert('Please install ' + type.charAt(0).toUpperCase() + type.slice(1) + ' wallet extension');
+          return;
+        }
+        
+        closeModal();
+        document.getElementById('mock-banner').innerHTML = \`
+          ✅ Connected: \${window.walletAddress.slice(0,4)}...\${window.walletAddress.slice(-4)} | 
+          <span style="color:#00ff88">Live Trading Enabled</span>
+          <button onclick="disconnectWallet()" style="
+            background: #ff4444;
+            color: #fff;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 20px;
+            margin-left: 15px;
+            cursor: pointer;
+          ">Disconnect</button>
+        \`;
+        document.getElementById('mock-banner').style.background = 'linear-gradient(90deg, #00ff88, #00d4ff)';
+        document.getElementById('mock-banner').style.color = '#000';
+        
+        // Refresh arb cards to enable buttons
+        loadArbOpportunities();
+      } catch (err) {
+        alert('Connection failed: ' + err.message);
+      }
+    }
+    
+    function disconnectWallet() {
+      window.walletConnected = false;
+      window.walletAddress = null;
+      location.reload();
+    }
+    
+    async function executeArb(asset, longProtocol, shortProtocol) {
+      if (!window.walletConnected) {
+        document.getElementById('wallet-modal').classList.add('show');
+        return;
+      }
+      
+      const confirmed = confirm(\`Execute \${asset} arbitrage?\\n\\nLONG on \${longProtocol}\\nSHORT on \${shortProtocol}\\n\\nThis will open positions on both protocols.\`);
+      
+      if (confirmed) {
+        // TODO: Integrate with actual protocol SDKs
+        alert(\`🚧 Coming Soon!\\n\\nThis will:\\n1. Open LONG \${asset} on \${longProtocol}\\n2. Open SHORT \${asset} on \${shortProtocol}\\n\\nSDK integration in progress...\`);
+      }
+    }
   </script>
+  
+  <!-- Wallet Modal -->
+  <div id="wallet-modal" class="wallet-modal" onclick="if(event.target === this) closeModal()">
+    <div class="wallet-modal-content">
+      <h2 style="margin-bottom:20px">Connect Wallet</h2>
+      <p style="color:#888; margin-bottom:20px">Select a wallet to enable live trading</p>
+      
+      <div class="wallet-option" onclick="connectWallet('phantom')">
+        <img src="https://phantom.app/img/phantom-icon-purple.svg" width="40" height="40" alt="Phantom">
+        <span>Phantom</span>
+      </div>
+      
+      <div class="wallet-option" onclick="connectWallet('solflare')">
+        <img src="https://solflare.com/assets/logo.svg" width="40" height="40" alt="Solflare">
+        <span>Solflare</span>
+      </div>
+      
+      <button onclick="closeModal()" style="
+        margin-top: 20px;
+        padding: 10px 30px;
+        background: transparent;
+        border: 1px solid #666;
+        color: #888;
+        border-radius: 8px;
+        cursor: pointer;
+      ">Cancel</button>
+    </div>
+  </div>
 </body>
 </html>
   `;
