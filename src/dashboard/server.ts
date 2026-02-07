@@ -16,6 +16,7 @@ import { MangoMarkets } from '../protocols/mango';
 import { GooseFX } from '../protocols/goosefx';
 import { ParclProtocol } from '../protocols/parcl';
 import { PnLTracker } from '../core/pnl-tracker';
+import { findArbOpportunities, formatOpportunity } from '../core/cross-protocol-arb';
 import path from 'path';
 
 const PORT = process.env.PORT || 3000;
@@ -87,6 +88,44 @@ app.get('/api/funding-rates', async (req, res) => {
       rates: allRates,
       protocols: protocols.length,
       totalMarkets: allRates.length
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/arb-opportunities', async (req, res) => {
+  try {
+    // Fetch from all protocols
+    const [driftRates, jupRates, zetaRates, flashRates, mangoRates, gooseRates, parclRates] = 
+      await Promise.all([
+        drift.getFundingRates(),
+        jupiterPerps.getFundingRates(),
+        zeta.getFundingRates(),
+        flash.getFundingRates(),
+        mango.getFundingRates(),
+        goose.getFundingRates(),
+        parcl.getFundingRates(),
+      ]);
+    
+    const allRates = [
+      ...driftRates.map(r => ({ ...r, protocol: 'Drift', market: `DRIFT:${r.market}` })),
+      ...jupRates.map(r => ({ ...r, protocol: 'Jupiter' })),
+      ...zetaRates.map(r => ({ ...r, protocol: 'Zeta' })),
+      ...flashRates.map(r => ({ ...r, protocol: 'Flash' })),
+      ...mangoRates.map(r => ({ ...r, protocol: 'Mango' })),
+      ...gooseRates.map(r => ({ ...r, protocol: 'GooseFX' })),
+      ...parclRates.map(r => ({ ...r, protocol: 'Parcl' })),
+    ];
+    
+    // Find arbitrage opportunities
+    const opportunities = findArbOpportunities(allRates as any);
+    
+    res.json({ 
+      success: true, 
+      opportunities,
+      formatted: opportunities.map(formatOpportunity),
+      count: opportunities.length
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
