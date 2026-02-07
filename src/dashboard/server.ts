@@ -317,6 +317,40 @@ function getDashboardHTML(): string {
       border: 1px solid #7b2cbf;
     }
     
+    .arb-card {
+      background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(123, 44, 191, 0.1));
+      border: 1px solid #7b2cbf;
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .arb-card.low { border-color: #00ff88; }
+    .arb-card.medium { border-color: #ffaa00; }
+    .arb-card.high { border-color: #ff4444; }
+    .arb-card h3 { 
+      font-size: 1.3rem; 
+      margin-bottom: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .arb-card .apy { color: #00ff88; font-size: 1.5rem; }
+    .arb-card .leg {
+      padding: 10px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+      margin: 8px 0;
+    }
+    .arb-card .leg.long { border-left: 3px solid #00ff88; }
+    .arb-card .leg.short { border-left: 3px solid #ff4444; }
+    .arb-card .risk { 
+      font-size: 0.8rem; 
+      padding: 4px 10px; 
+      border-radius: 12px;
+    }
+    .arb-card .risk.low { background: rgba(0,255,136,0.2); color: #00ff88; }
+    .arb-card .risk.medium { background: rgba(255,170,0,0.2); color: #ffaa00; }
+    .arb-card .risk.high { background: rgba(255,68,68,0.2); color: #ff4444; }
+    
     #loading {
       text-align: center;
       padding: 40px;
@@ -373,17 +407,23 @@ function getDashboardHTML(): string {
     </div>
     
     <div class="section">
+      <h2>🔥 Cross-Protocol Arbitrage</h2>
+      <div id="arb-loading">Finding arbitrage opportunities...</div>
+      <div id="arb-cards" style="display:none; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;"></div>
+    </div>
+
+    <div class="section">
       <h2>🎯 Funding Rate Opportunities</h2>
       <div id="loading">Loading funding rates...</div>
       <table id="rates-table" style="display:none;">
         <thead>
           <tr>
+            <th>Protocol</th>
             <th>Market</th>
             <th>Funding Rate</th>
             <th>APY</th>
             <th>Direction</th>
             <th>Strategy</th>
-            <th>Daily ($1K)</th>
           </tr>
         </thead>
         <tbody id="rates-body"></tbody>
@@ -436,12 +476,12 @@ function getDashboardHTML(): string {
         
         const tbody = document.getElementById('rates-body');
         tbody.innerHTML = data.rates.map(rate => {
-          const isOpportunity = Math.abs(rate.fundingRateApy) >= 20;
-          const strategy = rate.longPayShort ? 'SHORT perp + LONG spot' : 'LONG perp + SHORT spot';
-          const daily1k = Math.abs(rate.fundingRateApy / 365 * 10).toFixed(2);
+          const isOpportunity = Math.abs(rate.fundingRateApy) >= 100;
+          const strategy = rate.longPayShort ? 'SHORT' : 'LONG';
           
           return \`
             <tr class="\${isOpportunity ? 'opportunity' : ''}">
+              <td><span style="color:#7b2cbf">\${rate.protocol || 'Drift'}</span></td>
               <td><strong>\${rate.market}</strong></td>
               <td>\${(rate.fundingRate * 100).toFixed(4)}%/hr</td>
               <td class="\${rate.fundingRateApy > 0 ? 'positive' : 'negative'}">
@@ -452,8 +492,7 @@ function getDashboardHTML(): string {
                   \${rate.longPayShort ? 'L→S' : 'S→L'}
                 </span>
               </td>
-              <td>\${isOpportunity ? strategy : '-'}</td>
-              <td>\${isOpportunity ? '$' + daily1k : '-'}</td>
+              <td>\${strategy}</td>
             </tr>
           \`;
         }).join('');
@@ -467,6 +506,40 @@ function getDashboardHTML(): string {
       el.className = 'value ' + (value >= 0 ? 'positive' : 'negative');
     }
     
+    // Fetch arb opportunities
+    function loadArbOpportunities() {
+      fetch('/api/arb-opportunities')
+        .then(r => r.json())
+        .then(data => {
+          if (data.success && data.opportunities.length > 0) {
+            document.getElementById('arb-loading').style.display = 'none';
+            const container = document.getElementById('arb-cards');
+            container.style.display = 'grid';
+            
+            container.innerHTML = data.opportunities.slice(0, 6).map(opp => \`
+              <div class="arb-card \${opp.riskLevel}">
+                <h3>
+                  <span>\${opp.asset}</span>
+                  <span class="apy">\${opp.netApy.toFixed(0)}% APY</span>
+                </h3>
+                <div class="leg long">
+                  <strong>📈 LONG</strong> on \${opp.longProtocol}<br>
+                  <small>\${opp.longMarket} @ \${(opp.longRate * 100).toFixed(4)}%/hr</small>
+                </div>
+                <div class="leg short">
+                  <strong>📉 SHORT</strong> on \${opp.shortProtocol}<br>
+                  <small>\${opp.shortMarket} @ \${(opp.shortRate * 100).toFixed(4)}%/hr</small>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:15px;">
+                  <span>Spread: \${opp.spreadApy.toFixed(0)}%</span>
+                  <span class="risk \${opp.riskLevel}">\${opp.riskLevel.toUpperCase()}</span>
+                </div>
+              </div>
+            \`).join('');
+          }
+        });
+    }
+    
     // Initial fetch
     fetch('/api/funding-rates')
       .then(r => r.json())
@@ -475,6 +548,9 @@ function getDashboardHTML(): string {
           updateDashboard({ rates: data.rates, stats: { daily: {profitUsd: 0}, weekly: {profitUsd: 0}, monthly: {profitUsd: 0}, allTime: {trades: 0} } });
         }
       });
+    
+    loadArbOpportunities();
+    setInterval(loadArbOpportunities, 30000);
   </script>
 </body>
 </html>
