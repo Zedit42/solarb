@@ -1,48 +1,64 @@
-# SolArb - Cross-DEX Arbitrage Agent for Solana
+# SolArb - Funding Rate Arbitrage Agent for Solana
 
-🤖 Autonomous arbitrage agent that finds and executes profitable trades across Solana DEXes.
+🤖 Autonomous agent that captures funding rate arbitrage opportunities on Solana perp markets.
+
+## What is Funding Rate Arbitrage?
+
+Perpetual futures markets use **funding rates** to keep prices aligned with spot. When funding is positive, longs pay shorts. When negative, shorts pay longs.
+
+**The Strategy:**
+1. Open a perp position (long or short based on funding direction)
+2. Hedge with opposite spot position (delta neutral)
+3. Collect funding payments every hour
+4. Close when funding normalizes
+
+**Example:**
+- Funding rate: +0.05% per hour (longs pay shorts)
+- Open SHORT perp + buy SPOT (hedged)
+- Collect 0.05% × 24 = 1.2% daily from funding
+- Zero price risk (delta neutral)
 
 ## Features
 
-- **Multi-DEX Support**: Jupiter, Raydium, Orca, Meteora
-- **Real-time Price Monitoring**: Sub-second price feeds across all DEXes
-- **Automatic Execution**: Instant arbitrage capture when profitable opportunities arise
-- **P&L Tracking**: Daily, weekly, monthly profit/loss statistics
-- **Risk Management**: Configurable slippage, max position size, and stop-loss
-- **Dashboard**: Web UI for monitoring and configuration
+- **Multi-Protocol Support**: Drift, Zeta, Mango
+- **Real-time Funding Monitoring**: Track rates across all markets
+- **Automatic Hedging**: Delta-neutral position management
+- **P&L Tracking**: Daily, weekly, monthly statistics
+- **Risk Management**: Position limits, auto-close thresholds
+- **Dashboard**: Web UI for monitoring
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      SolArb Agent                           │
+│                  SolArb Funding Agent                       │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │   Jupiter   │  │   Raydium   │  │    Orca     │  ...    │
-│  │    Feeds    │  │    Feeds    │  │   Feeds     │         │
+│  │    Drift    │  │    Zeta     │  │    Mango    │         │
+│  │  Funding    │  │  Funding    │  │   Funding   │         │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘         │
 │         │                │                │                 │
 │         └────────────────┼────────────────┘                 │
 │                          ▼                                  │
 │              ┌───────────────────────┐                      │
-│              │   Arbitrage Engine    │                      │
-│              │   - Price comparison  │                      │
-│              │   - Profit calculator │                      │
-│              │   - Risk checker      │                      │
+│              │   Funding Analyzer    │                      │
+│              │   - Rate comparison   │                      │
+│              │   - APY calculation   │                      │
+│              │   - Entry signals     │                      │
 │              └───────────┬───────────┘                      │
 │                          ▼                                  │
 │              ┌───────────────────────┐                      │
-│              │   Execution Engine    │                      │
-│              │   - Route optimizer   │                      │
-│              │   - Transaction build │                      │
-│              │   - Atomic execution  │                      │
+│              │   Position Manager    │                      │
+│              │   - Perp positions    │                      │
+│              │   - Spot hedges       │                      │
+│              │   - Delta balancing   │                      │
 │              └───────────┬───────────┘                      │
 │                          ▼                                  │
 │              ┌───────────────────────┐                      │
 │              │      Dashboard        │                      │
+│              │   - Funding rates     │                      │
+│              │   - Open positions    │                      │
 │              │   - P&L tracking      │                      │
-│              │   - Trade history     │                      │
-│              │   - Configuration     │                      │
 │              └───────────────────────┘                      │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -57,7 +73,10 @@ npm install
 cp config/default.example.json config/default.json
 # Edit config with your settings
 
-# Run
+# Scan funding rates
+npm run scan
+
+# Start the bot
 npm start
 ```
 
@@ -67,31 +86,35 @@ npm start
 {
   "rpc": "https://mainnet.helius-rpc.com/?api-key=YOUR_KEY",
   "wallet": "YOUR_WALLET_PATH",
-  "pairs": ["SOL/USDC", "RAY/USDC", "ORCA/USDC"],
-  "minProfitBps": 10,
-  "maxSlippageBps": 50,
+  "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP"],
+  "minFundingApy": 20,
   "maxPositionUsd": 1000,
-  "dexes": ["jupiter", "raydium", "orca", "meteora"]
+  "protocols": ["drift", "zeta"]
 }
 ```
 
-## Supported DEXes
+## Supported Protocols
 
-| DEX | Status | Notes |
-|-----|--------|-------|
-| Jupiter | ✅ | Primary aggregator |
-| Raydium | ✅ | AMM pools |
-| Orca | ✅ | Whirlpools |
-| Meteora | ✅ | DLMM pools |
+| Protocol | Status | Funding Interval |
+|----------|--------|------------------|
+| Drift | ✅ | Hourly |
+| Zeta | ✅ | 8-hourly |
+| Mango | 🔄 | Hourly |
 
 ## P&L Tracking
 
 The dashboard shows:
-- **Daily P&L**: Today's profit/loss
-- **Weekly P&L**: Last 7 days
-- **Monthly P&L**: Last 30 days
-- **Trade History**: All executed trades
-- **Success Rate**: Win/loss ratio
+- **Current Positions**: Open perp + hedge positions
+- **Funding Earned**: Total funding collected
+- **Daily/Weekly/Monthly APY**: Annualized returns
+- **Position History**: All trades
+
+## Risk Management
+
+- **Delta Neutral**: Always hedged, no directional risk
+- **Position Limits**: Max size per market
+- **Auto-Close**: Exit when funding drops below threshold
+- **Liquidation Buffer**: Maintain safe margin levels
 
 ## Hackathon
 

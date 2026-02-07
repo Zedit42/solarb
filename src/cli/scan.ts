@@ -1,132 +1,125 @@
 /**
- * SolArb Scanner CLI
+ * SolArb Funding Rate Scanner CLI
  * 
- * Scan for arbitrage opportunities without executing.
+ * Scan for funding rate arbitrage opportunities.
  */
 
-import { Connection } from '@solana/web3.js';
-import { JupiterDex } from '../dex/jupiter';
-import { RaydiumDex } from '../dex/raydium';
-import { OrcaDex } from '../dex/orca';
-import { MeteoraDex } from '../dex/meteora';
-import { PriceQuote } from '../types';
+import { Connection, Keypair } from '@solana/web3.js';
+import { DriftProtocol } from '../protocols/drift';
 import { logger } from '../utils/logger';
 
 const RPC_URL = process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
-const PAIRS = ['SOL/USDC', 'RAY/USDC', 'ORCA/USDC', 'JUP/USDC'];
-const AMOUNT_USD = 100;
+const MIN_APY = 20; // Minimum 20% APY to show
 
-interface ArbitrageResult {
-  pair: string;
-  buyDex: string;
-  sellDex: string;
-  buyPrice: number;
-  sellPrice: number;
-  profitBps: number;
-  profitUsd: number;
+interface Opportunity {
+  market: string;
+  fundingApy: number;
+  strategy: string;
+  dailyReturn: number;
+  hourlyPayment: number;
 }
 
 async function scan() {
   console.log(`
-╔══════════════════════════════════════════════════╗
-║           SolArb Arbitrage Scanner               ║
-╠══════════════════════════════════════════════════╣
-║  Scanning ${PAIRS.length} pairs across 4 DEXes...             ║
-╚══════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════╗
+║           SolArb Funding Rate Scanner                    ║
+╠══════════════════════════════════════════════════════════╣
+║  Scanning Drift Protocol for funding opportunities...    ║
+╚══════════════════════════════════════════════════════════╝
   `);
 
   const connection = new Connection(RPC_URL, 'confirmed');
-  
-  const dexes = [
-    new JupiterDex(connection),
-    new RaydiumDex(connection),
-    new OrcaDex(connection),
-    new MeteoraDex(connection)
-  ];
+  const drift = new DriftProtocol(connection);
 
-  const opportunities: ArbitrageResult[] = [];
+  try {
+    // Get all funding rates
+    console.log('📡 Fetching funding rates from Drift...\n');
+    const rates = await drift.getFundingRates();
 
-  for (const pair of PAIRS) {
-    const [baseToken, quoteToken] = pair.split('/');
-    console.log(`\n🔍 Scanning ${pair}...`);
-    
-    const quotes: Map<string, PriceQuote> = new Map();
-    
-    // Get quotes from all DEXes
-    for (const dex of dexes) {
-      try {
-        const quote = await dex.getQuote(baseToken, quoteToken, AMOUNT_USD);
-        if (quote) {
-          quotes.set(dex.name, quote);
-          console.log(`   ${dex.name.padEnd(10)} Buy: $${quote.buyPrice.toFixed(6)} | Sell: $${quote.sellPrice.toFixed(6)}`);
-        }
-      } catch (error) {
-        // Skip failed quotes
+    if (rates.length === 0) {
+      console.log('❌ No funding data available');
+      return;
+    }
+
+    // Display all rates
+    console.log('╔═══════════════════════════════════════════════════════════════╗');
+    console.log('║                  Current Funding Rates                        ║');
+    console.log('╠═══════════════════════════════════════════════════════════════╣');
+    console.log('║  Market       │ Rate/hr   │ APY       │ Direction             ║');
+    console.log('╠═══════════════════════════════════════════════════════════════╣');
+
+    for (const rate of rates.slice(0, 15)) {
+      const rateStr = `${(rate.fundingRate * 100).toFixed(4)}%`;
+      const apyStr = `${rate.fundingRateApy > 0 ? '+' : ''}${rate.fundingRateApy.toFixed(1)}%`;
+      const direction = rate.longPayShort ? 'Longs → Shorts' : 'Shorts → Longs';
+      
+      console.log(`║  ${rate.market.padEnd(12)} │ ${rateStr.padStart(9)} │ ${apyStr.padStart(9)} │ ${direction.padEnd(18)} ║`);
+    }
+
+    console.log('╚═══════════════════════════════════════════════════════════════╝');
+
+    // Find opportunities
+    const opportunities: Opportunity[] = [];
+
+    for (const rate of rates) {
+      if (Math.abs(rate.fundingRateApy) >= MIN_APY) {
+        // Strategy: go opposite of funding payers
+        const strategy = rate.longPayShort 
+          ? 'SHORT perp + LONG spot'
+          : 'LONG perp + SHORT spot';
+
+        opportunities.push({
+          market: rate.market,
+          fundingApy: rate.fundingRateApy,
+          strategy,
+          dailyReturn: rate.fundingRateApy / 365,
+          hourlyPayment: rate.fundingRate * 1000 // per $1000
+        });
       }
     }
 
-    // Find arbitrage
-    if (quotes.size >= 2) {
-      let bestBuy: { dex: string; quote: PriceQuote } | null = null;
-      let bestSell: { dex: string; quote: PriceQuote } | null = null;
+    console.log('\n');
 
-      for (const [dex, quote] of quotes.entries()) {
-        if (!bestBuy || quote.buyPrice < bestBuy.quote.buyPrice) {
-          bestBuy = { dex, quote };
-        }
-        if (!bestSell || quote.sellPrice > bestSell.quote.sellPrice) {
-          bestSell = { dex, quote };
-        }
+    if (opportunities.length === 0) {
+      console.log('═══════════════════════════════════════════════════════════════');
+      console.log('                    NO OPPORTUNITIES');
+      console.log('═══════════════════════════════════════════════════════════════');
+      console.log(`\n❌ No markets with funding APY > ${MIN_APY}%`);
+      console.log('   Market is efficient right now. Keep monitoring!\n');
+    } else {
+      console.log('═══════════════════════════════════════════════════════════════');
+      console.log('                 🎯 ARBITRAGE OPPORTUNITIES                     ');
+      console.log('═══════════════════════════════════════════════════════════════');
+      
+      opportunities.sort((a, b) => Math.abs(b.fundingApy) - Math.abs(a.fundingApy));
+
+      for (const opp of opportunities) {
+        const daily1k = Math.abs(opp.dailyReturn) * 10; // $1000 position
+        const monthly1k = daily1k * 30;
+
+        console.log(`\n   📊 ${opp.market}`);
+        console.log(`   ├─ Strategy: ${opp.strategy}`);
+        console.log(`   ├─ APY: ${opp.fundingApy > 0 ? '+' : ''}${opp.fundingApy.toFixed(1)}%`);
+        console.log(`   ├─ Daily: ~${opp.dailyReturn.toFixed(3)}%`);
+        console.log(`   └─ Returns on $1000:`);
+        console.log(`      • Hourly: $${Math.abs(opp.hourlyPayment).toFixed(4)}`);
+        console.log(`      • Daily:  $${daily1k.toFixed(2)}`);
+        console.log(`      • Monthly: $${monthly1k.toFixed(2)}`);
       }
 
-      if (bestBuy && bestSell && bestBuy.dex !== bestSell.dex) {
-        const profitBps = Math.floor(
-          ((bestSell.quote.sellPrice - bestBuy.quote.buyPrice) / bestBuy.quote.buyPrice) * 10000
-        );
-        
-        if (profitBps > 0) {
-          opportunities.push({
-            pair,
-            buyDex: bestBuy.dex,
-            sellDex: bestSell.dex,
-            buyPrice: bestBuy.quote.buyPrice,
-            sellPrice: bestSell.quote.sellPrice,
-            profitBps,
-            profitUsd: (profitBps / 10000) * AMOUNT_USD
-          });
-        }
-      }
+      console.log('\n═══════════════════════════════════════════════════════════════');
+      console.log('\n💡 To execute, run: npm start');
     }
+
+    console.log('\n');
+
+  } catch (error: any) {
+    logger.error(`Scan failed: ${error.message}`);
+    console.log('\nTip: Make sure you have a valid RPC endpoint configured.');
   }
-
-  // Print results
-  console.log('\n');
-  console.log('═══════════════════════════════════════════════════');
-  console.log('                 SCAN RESULTS                       ');
-  console.log('═══════════════════════════════════════════════════');
-
-  if (opportunities.length === 0) {
-    console.log('\n❌ No arbitrage opportunities found');
-    console.log('   Market is efficient right now. Keep scanning!\n');
-  } else {
-    opportunities.sort((a, b) => b.profitBps - a.profitBps);
-    
-    console.log(`\n✅ Found ${opportunities.length} opportunities:\n`);
-    
-    for (const opp of opportunities) {
-      const status = opp.profitBps >= 10 ? '🎯 EXECUTABLE' : '⚠️  Low profit';
-      console.log(`   ${opp.pair}`);
-      console.log(`   Buy on ${opp.buyDex} @ $${opp.buyPrice.toFixed(6)}`);
-      console.log(`   Sell on ${opp.sellDex} @ $${opp.sellPrice.toFixed(6)}`);
-      console.log(`   Profit: ${opp.profitBps} bps ($${opp.profitUsd.toFixed(2)}) ${status}`);
-      console.log('');
-    }
-  }
-
-  console.log('═══════════════════════════════════════════════════\n');
 }
 
 scan().catch(error => {
-  logger.error('Scan failed:', error);
+  console.error('Fatal error:', error);
   process.exit(1);
 });
