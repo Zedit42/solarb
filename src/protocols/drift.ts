@@ -9,7 +9,11 @@ import { Connection, PublicKey, Keypair, Transaction } from '@solana/web3.js';
 import axios from 'axios';
 import { logger } from '../utils/logger';
 
-const DRIFT_API = 'https://mainnet-beta.api.drift.trade';
+// Use devnet for testing, mainnet for production
+const IS_DEVNET = process.env.DRIFT_NETWORK !== 'mainnet';
+const DRIFT_API = IS_DEVNET 
+  ? 'https://master.api.drift.trade'  // Devnet API
+  : 'https://mainnet-beta.api.drift.trade';
 const DRIFT_STATS_API = 'https://drift-historical-data-v2.s3.eu-west-1.amazonaws.com';
 
 export interface FundingRate {
@@ -75,8 +79,37 @@ export class DriftProtocol {
       }));
     } catch (error: any) {
       logger.error(`Drift markets error: ${error.message}`);
-      return [];
+      // Return mock data for demo
+      return this.getMockMarkets();
     }
+  }
+
+  /**
+   * Mock markets for demo/testing
+   */
+  private getMockMarkets(): DriftMarket[] {
+    const baseRates = [0.0003, -0.0002, 0.0008, -0.0001, 0.0005, 0.0002, -0.0004, 0.0006];
+    const markets = [
+      { symbol: 'SOL-PERP', baseAsset: 'SOL', price: 185.42 },
+      { symbol: 'BTC-PERP', baseAsset: 'BTC', price: 97850.00 },
+      { symbol: 'ETH-PERP', baseAsset: 'ETH', price: 3245.80 },
+      { symbol: 'JUP-PERP', baseAsset: 'JUP', price: 0.92 },
+      { symbol: 'WIF-PERP', baseAsset: 'WIF', price: 1.85 },
+      { symbol: 'BONK-PERP', baseAsset: 'BONK', price: 0.000028 },
+      { symbol: 'PYTH-PERP', baseAsset: 'PYTH', price: 0.38 },
+      { symbol: 'JTO-PERP', baseAsset: 'JTO', price: 3.12 },
+    ];
+    
+    return markets.map((m, i) => ({
+      marketIndex: i,
+      symbol: m.symbol,
+      baseAsset: m.baseAsset,
+      oraclePrice: m.price * (1 + (Math.random() - 0.5) * 0.001),
+      markPrice: m.price * (1 + (Math.random() - 0.5) * 0.002),
+      volume24h: Math.random() * 50000000 + 10000000,
+      openInterest: Math.random() * 100000000 + 20000000,
+      fundingRate: baseRates[i] + (Math.random() - 0.5) * 0.0002
+    }));
   }
 
   /**

@@ -9,11 +9,20 @@ import { createServer } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { Connection } from '@solana/web3.js';
 import { DriftProtocol } from '../protocols/drift';
+import { JupiterPerps } from '../protocols/jupiter-perps';
+import { ZetaMarkets } from '../protocols/zeta';
+import { FlashTrade } from '../protocols/flash';
+import { MangoMarkets } from '../protocols/mango';
+import { GooseFX } from '../protocols/goosefx';
+import { ParclProtocol } from '../protocols/parcl';
 import { PnLTracker } from '../core/pnl-tracker';
 import path from 'path';
 
 const PORT = process.env.PORT || 3000;
-const RPC_URL = process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
+const IS_DEVNET = process.env.DRIFT_NETWORK !== 'mainnet';
+const RPC_URL = process.env.SOLANA_RPC || (IS_DEVNET 
+  ? 'https://api.devnet.solana.com'
+  : 'https://api.mainnet-beta.solana.com');
 
 const app = express();
 const server = createServer(app);
@@ -22,7 +31,24 @@ const wss = new WebSocketServer({ server });
 // Initialize services
 const connection = new Connection(RPC_URL, 'confirmed');
 const drift = new DriftProtocol(connection);
+const jupiterPerps = new JupiterPerps(connection);
+const zeta = new ZetaMarkets(connection);
+const flash = new FlashTrade(connection);
+const mango = new MangoMarkets(connection);
+const goose = new GooseFX(connection);
+const parcl = new ParclProtocol(connection);
 const pnlTracker = new PnLTracker();
+
+// All protocols
+const protocols = [
+  { name: 'Drift', instance: drift },
+  { name: 'Jupiter', instance: jupiterPerps },
+  { name: 'Zeta', instance: zeta },
+  { name: 'Flash', instance: flash },
+  { name: 'Mango', instance: mango },
+  { name: 'GooseFX', instance: goose },
+  { name: 'Parcl', instance: parcl },
+];
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -30,8 +56,38 @@ app.use(express.static(path.join(__dirname, 'public')));
 // API Routes
 app.get('/api/funding-rates', async (req, res) => {
   try {
-    const rates = await drift.getFundingRates();
-    res.json({ success: true, rates });
+    // Fetch from all protocols in parallel
+    const [driftRates, jupRates, zetaRates, flashRates, mangoRates, gooseRates, parclRates] = 
+      await Promise.all([
+        drift.getFundingRates(),
+        jupiterPerps.getFundingRates(),
+        zeta.getFundingRates(),
+        flash.getFundingRates(),
+        mango.getFundingRates(),
+        goose.getFundingRates(),
+        parcl.getFundingRates(),
+      ]);
+    
+    // Combine and add protocol label
+    const allRates = [
+      ...driftRates.map(r => ({ ...r, protocol: 'Drift', market: `DRIFT:${r.market}` })),
+      ...jupRates.map(r => ({ ...r, protocol: 'Jupiter' })),
+      ...zetaRates.map(r => ({ ...r, protocol: 'Zeta' })),
+      ...flashRates.map(r => ({ ...r, protocol: 'Flash' })),
+      ...mangoRates.map(r => ({ ...r, protocol: 'Mango' })),
+      ...gooseRates.map(r => ({ ...r, protocol: 'GooseFX' })),
+      ...parclRates.map(r => ({ ...r, protocol: 'Parcl' })),
+    ];
+    
+    // Sort by APY (highest first)
+    allRates.sort((a, b) => Math.abs(b.fundingRateApy) - Math.abs(a.fundingRateApy));
+    
+    res.json({ 
+      success: true, 
+      rates: allRates,
+      protocols: protocols.length,
+      totalMarkets: allRates.length
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -90,12 +146,40 @@ wss.on('connection', (ws) => {
 
 async function sendUpdate(ws: WebSocket) {
   try {
-    const rates = await drift.getFundingRates();
+    // Fetch from all protocols
+    const [driftRates, jupRates, zetaRates, flashRates, mangoRates, gooseRates, parclRates] = 
+      await Promise.all([
+        drift.getFundingRates(),
+        jupiterPerps.getFundingRates(),
+        zeta.getFundingRates(),
+        flash.getFundingRates(),
+        mango.getFundingRates(),
+        goose.getFundingRates(),
+        parcl.getFundingRates(),
+      ]);
+    
+    const allRates = [
+      ...driftRates.map(r => ({ ...r, protocol: 'Drift', market: `DRIFT:${r.market}` })),
+      ...jupRates.map(r => ({ ...r, protocol: 'Jupiter' })),
+      ...zetaRates.map(r => ({ ...r, protocol: 'Zeta' })),
+      ...flashRates.map(r => ({ ...r, protocol: 'Flash' })),
+      ...mangoRates.map(r => ({ ...r, protocol: 'Mango' })),
+      ...gooseRates.map(r => ({ ...r, protocol: 'GooseFX' })),
+      ...parclRates.map(r => ({ ...r, protocol: 'Parcl' })),
+    ];
+    
+    allRates.sort((a, b) => Math.abs(b.fundingRateApy) - Math.abs(a.fundingRateApy));
+    
     const stats = pnlTracker.getStats();
     
     ws.send(JSON.stringify({
       type: 'update',
-      data: { rates: rates.slice(0, 15), stats }
+      data: { 
+        rates: allRates.slice(0, 30), 
+        stats,
+        protocols: protocols.length,
+        totalMarkets: allRates.length
+      }
     }));
   } catch (error) {
     // Ignore errors
@@ -360,13 +444,13 @@ function getDashboardHTML(): string {
 
 // Start server
 server.listen(PORT, () => {
-  console.log(\`
-╔══════════════════════════════════════════════════════════╗
-║           SolArb Dashboard Server                        ║
-╠══════════════════════════════════════════════════════════╣
-║  🌐 Dashboard: http://localhost:\${PORT}                    ║
-║  📡 WebSocket: ws://localhost:\${PORT}                      ║
-║  📊 API: http://localhost:\${PORT}/api/funding-rates        ║
-╚══════════════════════════════════════════════════════════╝
-  \`);
+  console.log(`
+==========================================================
+           SolArb Dashboard Server                        
+==========================================================
+  Dashboard: http://localhost:${PORT}
+  WebSocket: ws://localhost:${PORT}
+  API: http://localhost:${PORT}/api/funding-rates
+==========================================================
+  `);
 });
