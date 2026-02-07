@@ -1,15 +1,16 @@
 {
   "rpc": "https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY",
   "walletPath": "/path/to/your/wallet.json",
-  "pairs": [
-    "SOL/USDC",
-    "RAY/USDC",
-    "ORCA/USDC",
-    "JUP/USDC"
+  "markets": [
+    "SOL-PERP",
+    "BTC-PERP",
+    "ETH-PERP",
+    "JUP-PERP",
+    "JTO-PERP"
   ],
-  "minProfitBps": 10,
-  "maxSlippageBps": 50,
-  "maxPositionUsd": 100,
-  "scanIntervalMs": 1000,
-  "dexes": ["jupiter", "raydium", "orca", "meteora"]
+  "minFundingApy": 20,
+  "maxPositionUsd": 1000,
+  "checkIntervalMs": 60000,
+  "exitApyThreshold": 5,
+  "protocols": ["drift"]
 }

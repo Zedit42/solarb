@@ -5,10 +5,10 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
+    "start": "ts-node src/index.ts",
     "scan": "ts-node src/cli/scan.ts",
     "dashboard": "ts-node src/dashboard/server.ts",
+    "dev": "npm run dashboard",
     "test": "jest"
   },
   "keywords": ["solana", "arbitrage", "defi", "trading", "ai-agent"],
