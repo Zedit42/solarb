@@ -1,0 +1,37 @@
+{
+  "name": "solarb",
+  "version": "0.1.0",
+  "description": "Cross-DEX Arbitrage Agent for Solana",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "scan": "ts-node src/cli/scan.ts",
+    "dashboard": "ts-node src/dashboard/server.ts",
+    "test": "jest"
+  },
+  "keywords": ["solana", "arbitrage", "defi", "trading", "ai-agent"],
+  "author": "xeonen-arbitrage-agent",
+  "license": "MIT",
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "@solana/spl-token": "^0.4.0",
+    "@jup-ag/api": "^6.0.0",
+    "axios": "^1.6.0",
+    "express": "^4.18.0",
+    "ws": "^8.16.0",
+    "dotenv": "^16.3.0",
+    "chalk": "^5.3.0",
+    "table": "^6.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/express": "^4.17.21",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.0"
+  }
+}
